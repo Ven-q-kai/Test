@@ -1,0 +1,20 @@
+TextWindow.WriteLine("Bem Vindo Jogador! Qual o seu nome?")
+Nome = TextWindow.Read()
+TextWindow.WriteLine("Olá " + Nome + " Bem vindo! Quer somar números?(s/n)")
+Resposta1 = TextWindow.Read()
+If Resposta1 = "s" Then
+  TextWindow.ForegroundColor = "Yellow"
+  TextWindow.WriteLine("Digite o Primeiro valor")
+  Numero1 = TextWindow.Read()
+  textWindow.ForegroundColor = "Blue"
+  textWindow.WriteLine("Digite o Segundo valor")
+  Numero2 = TextWindow.Read()
+  textWindow.ForegroundColor = "green"
+  TextWindow.WriteLine("Esse é seu resultado:")
+  textWindow.ForegroundColor = "Red"
+  TextWindow.WriteLine(Numero1+Numero2)
+  TextWindow.ForegroundColor = "White"
+EndIf
+If Resposta1 = "n" Then
+  Program.End()
+EndIf
