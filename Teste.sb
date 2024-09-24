@@ -1,0 +1,14 @@
+TextWindow.BackgroundColor = "White"
+TextWindow.ForegroundColor = "Black"
+TextWindow.Clear()
+TextWindow.WriteLine("Qual o seu nome")
+nome = TextWindow.Read()
+If nome = "Marcus" Then
+  TextWindow.WriteLine("Oi pai!")
+ElseIf nome = "Arthur" Then
+  TextWindow.WriteLine("Olá " + nome + " Irmão")
+ElseIf nome = "Cauã" Then
+  TextWindow.WriteLine("Coe mano " + nome)
+Else
+   TextWindow.WriteLine("Olá " + nome + " Tenha um bom dia!")
+EndIf
