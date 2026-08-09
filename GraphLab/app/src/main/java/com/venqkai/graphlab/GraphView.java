@@ -21,17 +21,57 @@ public final class GraphView extends View {
     private static final int GRID = Color.rgb(39, 46, 63);
     private static final int AXIS = Color.rgb(124, 137, 164);
     private static final int TEXT = Color.rgb(180, 188, 207);
+    private static final int INSPECT_BG = Color.rgb(27, 32, 44);
+    private static final int INSPECT_LINE = Color.rgb(199, 206, 222);
+
     private static final int[] COLORS = {
             Color.rgb(124, 157, 255), Color.rgb(255, 110, 168), Color.rgb(255, 190, 92),
             Color.rgb(88, 214, 141), Color.rgb(180, 128, 255), Color.rgb(255, 112, 99),
             Color.rgb(87, 205, 223), Color.rgb(236, 132, 79)
     };
 
+    public static final class FunctionSpec {
+        public final String name;
+        public final String formula;
+        public final int color;
+        public final boolean visible;
+
+        public FunctionSpec(String name, String formula, int color, boolean visible) {
+            this.name = name == null ? "" : name.trim();
+            this.formula = formula == null ? "" : formula.trim();
+            this.color = color;
+            this.visible = visible;
+        }
+
+        public String displayName() {
+            return name.isEmpty() ? formula : name;
+        }
+    }
+
+    private static final class Curve {
+        final FunctionSpec spec;
+        final Expression expression;
+
+        Curve(FunctionSpec spec) {
+            this.spec = spec;
+            this.expression = new Expression(spec.formula);
+        }
+    }
+
+    private static final class InspectValue {
+        final Curve curve;
+        final double y;
+
+        InspectValue(Curve curve, double y) {
+            this.curve = curve;
+            this.y = y;
+        }
+    }
+
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint textPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final DecimalFormat numberFormat = new DecimalFormat("0.###");
-    private final List<Expression> expressions = new ArrayList<>();
-    private final List<String> labels = new ArrayList<>();
+    private final List<Curve> curves = new ArrayList<>();
     private final ScaleGestureDetector scaleDetector;
     private final GestureDetector gestureDetector;
 
@@ -44,6 +84,9 @@ public final class GraphView extends View {
     private double initialSpanX = 20.0;
     private double initialSpanY = 20.0;
 
+    private boolean inspectorVisible = false;
+    private double inspectorX = 0.0;
+
     public GraphView(Context context) {
         super(context);
         setBackgroundColor(BG);
@@ -53,6 +96,11 @@ public final class GraphView extends View {
         textPaint.setTextSize(dp(11));
 
         scaleDetector = new ScaleGestureDetector(context, new ScaleGestureDetector.SimpleOnScaleGestureListener() {
+            @Override public boolean onScaleBegin(ScaleGestureDetector detector) {
+                inspectorVisible = false;
+                return true;
+            }
+
             @Override public boolean onScale(ScaleGestureDetector detector) {
                 double factor = detector.getScaleFactor();
                 if (!Double.isFinite(factor) || factor <= 0) return false;
@@ -69,8 +117,17 @@ public final class GraphView extends View {
 
             @Override public boolean onScroll(MotionEvent e1, MotionEvent e2, float distanceX, float distanceY) {
                 if (scaleDetector.isInProgress() || getWidth() == 0 || getHeight() == 0) return false;
+                inspectorVisible = false;
                 centerX += distanceX / getWidth() * spanX;
                 centerY -= distanceY / getHeight() * spanY;
+                invalidate();
+                return true;
+            }
+
+            @Override public boolean onSingleTapConfirmed(MotionEvent e) {
+                if (getWidth() <= 0) return false;
+                inspectorX = pxToX(e.getX(), getWidth());
+                inspectorVisible = true;
                 invalidate();
                 return true;
             }
@@ -82,14 +139,11 @@ public final class GraphView extends View {
         });
     }
 
-    public void setFunctions(List<String> formulas, double minX, double maxX) {
-        expressions.clear();
-        labels.clear();
-        for (String formula : formulas) {
-            expressions.add(new Expression(formula));
-            labels.add(formula.trim());
-        }
+    public void setFunctions(List<FunctionSpec> functions, double minX, double maxX) {
+        curves.clear();
+        for (FunctionSpec spec : functions) curves.add(new Curve(spec));
 
+        inspectorVisible = false;
         centerX = (minX + maxX) * 0.5;
         spanX = Math.max(1e-8, maxX - minX);
         autoFitY(minX, maxX);
@@ -98,6 +152,7 @@ public final class GraphView extends View {
     }
 
     public void resetViewport() {
+        inspectorVisible = false;
         centerX = initialCenterX;
         centerY = initialCenterY;
         spanX = initialSpanX;
@@ -107,6 +162,10 @@ public final class GraphView extends View {
 
     public static int colorFor(int index) {
         return COLORS[Math.floorMod(index, COLORS.length)];
+    }
+
+    public static int paletteSize() {
+        return COLORS.length;
     }
 
     private void rememberViewport() {
@@ -119,11 +178,12 @@ public final class GraphView extends View {
     private void autoFitY(double minX, double maxX) {
         List<Double> values = new ArrayList<>();
         int samples = 700;
-        for (Expression expression : expressions) {
+        for (Curve curve : curves) {
+            if (!curve.spec.visible) continue;
             for (int i = 0; i < samples; i++) {
                 double x = minX + (maxX - minX) * i / (samples - 1.0);
                 try {
-                    double y = expression.eval(x);
+                    double y = curve.expression.eval(x);
                     if (Double.isFinite(y) && Math.abs(y) < 1e12) values.add(y);
                 } catch (RuntimeException ignored) {}
             }
@@ -141,7 +201,8 @@ public final class GraphView extends View {
         double low = values.get(Math.max(0, lowIndex));
         double high = values.get(Math.min(values.size() - 1, highIndex));
         if (!Double.isFinite(low) || !Double.isFinite(high)) {
-            low = -10; high = 10;
+            low = -10;
+            high = 10;
         }
         if (Math.abs(high - low) < 1e-12) {
             double margin = Math.max(1.0, Math.abs(low) * 0.25);
@@ -162,6 +223,7 @@ public final class GraphView extends View {
         drawGrid(canvas, w, h);
         drawFunctions(canvas, w, h);
         drawLegend(canvas, w);
+        if (inspectorVisible) drawInspector(canvas, w, h);
     }
 
     private void drawGrid(Canvas canvas, int w, int h) {
@@ -185,6 +247,7 @@ public final class GraphView extends View {
             canvas.drawLine(px, 0, px, h, paint);
             if (px > dp(28) && px < w - dp(16)) {
                 textPaint.setTextAlign(Paint.Align.CENTER);
+                textPaint.setColor(TEXT);
                 canvas.drawText(format(x), px, h - dp(8), textPaint);
             }
         }
@@ -198,20 +261,21 @@ public final class GraphView extends View {
             canvas.drawLine(0, py, w, py, paint);
             if (py > dp(18) && py < h - dp(24)) {
                 textPaint.setTextAlign(Paint.Align.LEFT);
+                textPaint.setColor(TEXT);
                 canvas.drawText(format(y), dp(7), py - dp(4), textPaint);
             }
         }
     }
 
     private void drawFunctions(Canvas canvas, int w, int h) {
-        if (expressions.isEmpty()) return;
+        if (curves.isEmpty()) return;
         double minX = centerX - spanX / 2.0;
         double maxX = centerX + spanX / 2.0;
         int samples = Math.max(600, Math.min(1800, w * 2));
 
-        for (int functionIndex = 0; functionIndex < expressions.size(); functionIndex++) {
-            Expression expression = expressions.get(functionIndex);
-            paint.setColor(colorFor(functionIndex));
+        for (Curve curve : curves) {
+            if (!curve.spec.visible) continue;
+            paint.setColor(curve.spec.color);
             paint.setStyle(Paint.Style.STROKE);
             paint.setStrokeWidth(dp(2.3f));
             paint.setStrokeCap(Paint.Cap.ROUND);
@@ -223,7 +287,7 @@ public final class GraphView extends View {
             for (int i = 0; i < samples; i++) {
                 double x = minX + (maxX - minX) * i / (samples - 1.0);
                 double y;
-                try { y = expression.eval(x); }
+                try { y = curve.expression.eval(x); }
                 catch (RuntimeException ex) { y = Double.NaN; }
 
                 if (!Double.isFinite(y) || Math.abs(y - centerY) > spanY * 25) {
@@ -246,11 +310,11 @@ public final class GraphView extends View {
     }
 
     private void drawLegend(Canvas canvas, int w) {
-        if (labels.isEmpty()) return;
         float x = dp(10), y = dp(13);
         textPaint.setTextSize(dp(11));
-        for (int i = 0; i < labels.size(); i++) {
-            String label = labels.get(i);
+        for (Curve curve : curves) {
+            if (!curve.spec.visible) continue;
+            String label = curve.spec.displayName();
             if (label.length() > 22) label = label.substring(0, 21) + "…";
             float textWidth = textPaint.measureText(label);
             float itemWidth = dp(15) + textWidth + dp(12);
@@ -258,7 +322,7 @@ public final class GraphView extends View {
                 x = dp(10);
                 y += dp(22);
             }
-            paint.setColor(colorFor(i));
+            paint.setColor(curve.spec.color);
             paint.setStyle(Paint.Style.FILL);
             canvas.drawRoundRect(new RectF(x, y - dp(7), x + dp(8), y + dp(1)), dp(3), dp(3), paint);
             textPaint.setColor(TEXT);
@@ -266,6 +330,75 @@ public final class GraphView extends View {
             canvas.drawText(label, x + dp(13), y, textPaint);
             x += itemWidth;
             if (y > dp(58)) break;
+        }
+    }
+
+    private void drawInspector(Canvas canvas, int w, int h) {
+        float px = xToPx(inspectorX, w);
+        if (px < 0 || px > w) return;
+
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(dp(1.2f));
+        paint.setColor(INSPECT_LINE);
+        canvas.drawLine(px, 0, px, h, paint);
+
+        List<InspectValue> values = new ArrayList<>();
+        for (Curve curve : curves) {
+            if (!curve.spec.visible) continue;
+            try {
+                double y = curve.expression.eval(inspectorX);
+                if (Double.isFinite(y) && Math.abs(y - centerY) <= spanY * 25) {
+                    values.add(new InspectValue(curve, y));
+                    float py = yToPx(y, h);
+                    if (py >= 0 && py <= h) {
+                        paint.setStyle(Paint.Style.FILL);
+                        paint.setColor(curve.spec.color);
+                        canvas.drawCircle(px, py, dp(4.2f), paint);
+                        paint.setStyle(Paint.Style.STROKE);
+                        paint.setStrokeWidth(dp(1.5f));
+                        paint.setColor(BG);
+                        canvas.drawCircle(px, py, dp(4.2f), paint);
+                    }
+                }
+            } catch (RuntimeException ignored) {}
+        }
+
+        int shown = Math.min(3, values.size());
+        int lines = 1 + shown + (values.size() > shown ? 1 : 0);
+        float bubbleWidth = dp(174);
+        float bubbleHeight = dp(12 + lines * 18);
+        float bubbleX = px + dp(10);
+        if (bubbleX + bubbleWidth > w - dp(6)) bubbleX = px - bubbleWidth - dp(10);
+        bubbleX = Math.max(dp(6), Math.min(w - bubbleWidth - dp(6), bubbleX));
+        float bubbleY = Math.max(dp(68), Math.min(h - bubbleHeight - dp(8), dp(72)));
+
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(INSPECT_BG);
+        canvas.drawRoundRect(new RectF(bubbleX, bubbleY, bubbleX + bubbleWidth, bubbleY + bubbleHeight), dp(10), dp(10), paint);
+
+        textPaint.setTextAlign(Paint.Align.LEFT);
+        textPaint.setTextSize(dp(11));
+        textPaint.setColor(Color.rgb(229, 233, 242));
+        float textX = bubbleX + dp(10);
+        float textY = bubbleY + dp(17);
+        canvas.drawText("x = " + format(inspectorX), textX, textY, textPaint);
+
+        for (int i = 0; i < shown; i++) {
+            InspectValue item = values.get(i);
+            String name = item.curve.spec.displayName();
+            if (name.length() > 13) name = name.substring(0, 12) + "…";
+            textY += dp(18);
+            paint.setColor(item.curve.spec.color);
+            paint.setStyle(Paint.Style.FILL);
+            canvas.drawCircle(textX + dp(3), textY - dp(4), dp(3), paint);
+            textPaint.setColor(Color.rgb(229, 233, 242));
+            canvas.drawText(name + ": " + format(item.y), textX + dp(11), textY, textPaint);
+        }
+
+        if (values.size() > shown) {
+            textY += dp(18);
+            textPaint.setColor(TEXT);
+            canvas.drawText("+ " + (values.size() - shown) + " curva(s)", textX, textY, textPaint);
         }
     }
 
@@ -277,6 +410,10 @@ public final class GraphView extends View {
 
     private float xToPx(double x, int width) {
         return (float) ((x - (centerX - spanX / 2.0)) / spanX * width);
+    }
+
+    private double pxToX(float px, int width) {
+        return (centerX - spanX / 2.0) + (px / width) * spanX;
     }
 
     private float yToPx(double y, int height) {
@@ -298,7 +435,9 @@ public final class GraphView extends View {
     private String format(double value) {
         if (Math.abs(value) < 1e-11) value = 0;
         double abs = Math.abs(value);
-        if ((abs > 0 && abs < 0.001) || abs >= 100000) return String.format(java.util.Locale.US, "%.1e", value);
+        if ((abs > 0 && abs < 0.001) || abs >= 100000) {
+            return String.format(java.util.Locale.US, "%.1e", value);
+        }
         return numberFormat.format(value);
     }
 
