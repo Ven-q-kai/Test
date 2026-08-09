@@ -10,10 +10,7 @@ public final class Expression {
     public Expression(String source) {
         if (source == null) throw new IllegalArgumentException("Equação vazia");
         String s = source.trim().toLowerCase(Locale.US)
-                .replace("π", "pi")
-                .replace("×", "*")
-                .replace("÷", "/")
-                .replace("−", "-");
+                .replace("π", "pi").replace("×", "*").replace("÷", "/").replace("−", "-");
         if (s.startsWith("y=")) s = s.substring(2);
         if (s.startsWith("y =")) s = s.substring(3);
         if (s.startsWith("f(x)=")) s = s.substring(5);
@@ -24,18 +21,13 @@ public final class Expression {
     }
 
     public double eval(double x) {
-        this.x = x;
-        this.pos = 0;
+        this.x = x; this.pos = 0;
         double value = parseExpression();
-        if (pos != source.length()) {
-            throw error("Símbolo inesperado: '" + source.charAt(pos) + "'");
-        }
+        if (pos != source.length()) throw error("Símbolo inesperado: '" + source.charAt(pos) + "'");
         return value;
     }
 
-    private void validate() {
-        eval(0.731);
-    }
+    private void validate() { eval(0.731); }
 
     private double parseExpression() {
         double value = parseTerm();
@@ -72,9 +64,7 @@ public final class Expression {
 
     private double parsePrimary() {
         if (match('(')) {
-            double value = parseExpression();
-            require(')');
-            return value;
+            double value = parseExpression(); require(')'); return value;
         }
         if (peekDigit() || peek('.')) return parseNumber();
         if (peekLetter()) {
@@ -86,35 +76,26 @@ public final class Expression {
             if (!match('(')) throw error("Função '" + name + "' precisa de parênteses");
             double a = parseExpression();
             if (match(',')) {
-                double b = parseExpression();
-                require(')');
-                return applyBinary(name, a, b);
+                double b = parseExpression(); require(')'); return applyBinary(name, a, b);
             }
-            require(')');
-            return applyUnary(name, a);
+            require(')'); return applyUnary(name, a);
         }
         if (pos >= source.length()) throw error("Expressão incompleta");
         throw error("Símbolo inesperado: '" + source.charAt(pos) + "'");
     }
 
     private double parseNumber() {
-        int start = pos;
-        boolean hasExponent = false;
+        int start = pos; boolean hasExponent = false;
         while (pos < source.length()) {
             char c = source.charAt(pos);
-            if (Character.isDigit(c) || c == '.') {
-                pos++;
-            } else if ((c == 'e' || c == 'E') && !hasExponent && exponentStartsAt(pos)) {
-                hasExponent = true;
-                pos++;
+            if (Character.isDigit(c) || c == '.') pos++;
+            else if ((c == 'e' || c == 'E') && !hasExponent && exponentStartsAt(pos)) {
+                hasExponent = true; pos++;
                 if (pos < source.length() && (source.charAt(pos) == '+' || source.charAt(pos) == '-')) pos++;
             } else break;
         }
-        try {
-            return Double.parseDouble(source.substring(start, pos));
-        } catch (NumberFormatException ex) {
-            throw error("Número inválido");
-        }
+        try { return Double.parseDouble(source.substring(start, pos)); }
+        catch (NumberFormatException ex) { throw error("Número inválido"); }
     }
 
     private boolean exponentStartsAt(int index) {
@@ -136,6 +117,9 @@ public final class Expression {
             case "sin": return Math.sin(a);
             case "cos": return Math.cos(a);
             case "tan": return Math.tan(a);
+            case "sec": return 1.0 / Math.cos(a);
+            case "csc": return 1.0 / Math.sin(a);
+            case "cot": return 1.0 / Math.tan(a);
             case "asin": return Math.asin(a);
             case "acos": return Math.acos(a);
             case "atan": return Math.atan(a);
@@ -147,6 +131,7 @@ public final class Expression {
             case "abs": return Math.abs(a);
             case "ln": return Math.log(a);
             case "log": return Math.log10(a);
+            case "log2": return Math.log(a) / Math.log(2.0);
             case "exp": return Math.exp(a);
             case "floor": return Math.floor(a);
             case "ceil": return Math.ceil(a);
@@ -154,6 +139,7 @@ public final class Expression {
             case "sign": return Math.signum(a);
             case "deg": return Math.toDegrees(a);
             case "rad": return Math.toRadians(a);
+            case "sinc": return Math.abs(a) < 1e-12 ? 1.0 : Math.sin(a) / a;
             default: throw error("Função desconhecida: " + name);
         }
     }
@@ -165,6 +151,7 @@ public final class Expression {
             case "max": return Math.max(a, b);
             case "root": return Math.pow(b, 1.0 / a);
             case "atan2": return Math.atan2(a, b);
+            case "hypot": return Math.hypot(a, b);
             default: throw error("Função de dois argumentos desconhecida: " + name);
         }
     }
@@ -182,28 +169,10 @@ public final class Expression {
         return c == '(' || Character.isLetter(c);
     }
 
-    private boolean match(char c) {
-        if (peek(c)) { pos++; return true; }
-        return false;
-    }
-
-    private void require(char c) {
-        if (!match(c)) throw error("Esperado '" + c + "'");
-    }
-
-    private boolean peek(char c) {
-        return pos < source.length() && source.charAt(pos) == c;
-    }
-
-    private boolean peekDigit() {
-        return pos < source.length() && Character.isDigit(source.charAt(pos));
-    }
-
-    private boolean peekLetter() {
-        return pos < source.length() && Character.isLetter(source.charAt(pos));
-    }
-
-    private IllegalArgumentException error(String message) {
-        return new IllegalArgumentException(message + " na posição " + (pos + 1));
-    }
+    private boolean match(char c) { if (peek(c)) { pos++; return true; } return false; }
+    private void require(char c) { if (!match(c)) throw error("Esperado '" + c + "'"); }
+    private boolean peek(char c) { return pos < source.length() && source.charAt(pos) == c; }
+    private boolean peekDigit() { return pos < source.length() && Character.isDigit(source.charAt(pos)); }
+    private boolean peekLetter() { return pos < source.length() && Character.isLetter(source.charAt(pos)); }
+    private IllegalArgumentException error(String message) { return new IllegalArgumentException(message + " na posição " + (pos + 1)); }
 }
