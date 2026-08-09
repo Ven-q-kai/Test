@@ -85,7 +85,9 @@ public final class GraphView extends View {
     private double initialSpanY = 20.0;
 
     private boolean inspectorVisible = false;
+    private boolean draggingInspector = false;
     private double inspectorX = 0.0;
+    private float inspectorTouchY = 90f;
 
     public GraphView(Context context) {
         super(context);
@@ -98,6 +100,7 @@ public final class GraphView extends View {
         scaleDetector = new ScaleGestureDetector(context, new ScaleGestureDetector.SimpleOnScaleGestureListener() {
             @Override public boolean onScaleBegin(ScaleGestureDetector detector) {
                 inspectorVisible = false;
+                draggingInspector = false;
                 return true;
             }
 
@@ -116,7 +119,7 @@ public final class GraphView extends View {
             @Override public boolean onDown(MotionEvent e) { return true; }
 
             @Override public boolean onScroll(MotionEvent e1, MotionEvent e2, float distanceX, float distanceY) {
-                if (scaleDetector.isInProgress() || getWidth() == 0 || getHeight() == 0) return false;
+                if (scaleDetector.isInProgress() || getWidth() == 0 || getHeight() == 0 || draggingInspector) return false;
                 inspectorVisible = false;
                 centerX += distanceX / getWidth() * spanX;
                 centerY -= distanceY / getHeight() * spanY;
@@ -127,6 +130,7 @@ public final class GraphView extends View {
             @Override public boolean onSingleTapConfirmed(MotionEvent e) {
                 if (getWidth() <= 0) return false;
                 inspectorX = pxToX(e.getX(), getWidth());
+                inspectorTouchY = e.getY();
                 inspectorVisible = true;
                 invalidate();
                 return true;
@@ -140,19 +144,33 @@ public final class GraphView extends View {
     }
 
     public void setFunctions(List<FunctionSpec> functions, double minX, double maxX) {
+        setFunctions(functions, minX, maxX, true, -10, 10);
+    }
+
+    public void setFunctions(List<FunctionSpec> functions, double minX, double maxX,
+                             boolean autoY, double minY, double maxY) {
         curves.clear();
         for (FunctionSpec spec : functions) curves.add(new Curve(spec));
 
         inspectorVisible = false;
+        draggingInspector = false;
         centerX = (minX + maxX) * 0.5;
         spanX = Math.max(1e-8, maxX - minX);
-        autoFitY(minX, maxX);
+
+        if (autoY) {
+            autoFitY(minX, maxX);
+        } else {
+            centerY = (minY + maxY) * 0.5;
+            spanY = Math.max(1e-8, maxY - minY);
+        }
+
         rememberViewport();
         invalidate();
     }
 
     public void resetViewport() {
         inspectorVisible = false;
+        draggingInspector = false;
         centerX = initialCenterX;
         centerY = initialCenterY;
         spanX = initialSpanX;
@@ -178,6 +196,7 @@ public final class GraphView extends View {
     private void autoFitY(double minX, double maxX) {
         List<Double> values = new ArrayList<>();
         int samples = 700;
+
         for (Curve curve : curves) {
             if (!curve.spec.visible) continue;
             for (int i = 0; i < samples; i++) {
@@ -200,15 +219,18 @@ public final class GraphView extends View {
         int highIndex = (int) Math.ceil((values.size() - 1) * 0.98);
         double low = values.get(Math.max(0, lowIndex));
         double high = values.get(Math.min(values.size() - 1, highIndex));
+
         if (!Double.isFinite(low) || !Double.isFinite(high)) {
             low = -10;
             high = 10;
         }
+
         if (Math.abs(high - low) < 1e-12) {
             double margin = Math.max(1.0, Math.abs(low) * 0.25);
             low -= margin;
             high += margin;
         }
+
         double margin = (high - low) * 0.12;
         centerY = (low + high) * 0.5;
         spanY = Math.max(1e-8, (high - low) + 2 * margin);
@@ -284,6 +306,7 @@ public final class GraphView extends View {
             Path path = new Path();
             boolean started = false;
             float previousY = 0;
+
             for (int i = 0; i < samples; i++) {
                 double x = minX + (maxX - minX) * i / (samples - 1.0);
                 double y;
@@ -312,16 +335,19 @@ public final class GraphView extends View {
     private void drawLegend(Canvas canvas, int w) {
         float x = dp(10), y = dp(13);
         textPaint.setTextSize(dp(11));
+
         for (Curve curve : curves) {
             if (!curve.spec.visible) continue;
             String label = curve.spec.displayName();
             if (label.length() > 22) label = label.substring(0, 21) + "…";
             float textWidth = textPaint.measureText(label);
             float itemWidth = dp(15) + textWidth + dp(12);
+
             if (x + itemWidth > w - dp(6)) {
                 x = dp(10);
                 y += dp(22);
             }
+
             paint.setColor(curve.spec.color);
             paint.setStyle(Paint.Style.FILL);
             canvas.drawRoundRect(new RectF(x, y - dp(7), x + dp(8), y + dp(1)), dp(3), dp(3), paint);
@@ -363,14 +389,17 @@ public final class GraphView extends View {
             } catch (RuntimeException ignored) {}
         }
 
-        int shown = Math.min(3, values.size());
+        int maxShown = h > dp(420) ? 5 : 4;
+        int shown = Math.min(maxShown, values.size());
         int lines = 1 + shown + (values.size() > shown ? 1 : 0);
-        float bubbleWidth = dp(174);
-        float bubbleHeight = dp(12 + lines * 18);
+        float bubbleWidth = dp(190);
+        float bubbleHeight = dp(14 + lines * 19);
         float bubbleX = px + dp(10);
         if (bubbleX + bubbleWidth > w - dp(6)) bubbleX = px - bubbleWidth - dp(10);
         bubbleX = Math.max(dp(6), Math.min(w - bubbleWidth - dp(6), bubbleX));
-        float bubbleY = Math.max(dp(68), Math.min(h - bubbleHeight - dp(8), dp(72)));
+
+        float desiredY = inspectorTouchY - bubbleHeight * 0.5f;
+        float bubbleY = Math.max(dp(66), Math.min(h - bubbleHeight - dp(8), desiredY));
 
         paint.setStyle(Paint.Style.FILL);
         paint.setColor(INSPECT_BG);
@@ -380,29 +409,51 @@ public final class GraphView extends View {
         textPaint.setTextSize(dp(11));
         textPaint.setColor(Color.rgb(229, 233, 242));
         float textX = bubbleX + dp(10);
-        float textY = bubbleY + dp(17);
+        float textY = bubbleY + dp(18);
         canvas.drawText("x = " + format(inspectorX), textX, textY, textPaint);
 
         for (int i = 0; i < shown; i++) {
             InspectValue item = values.get(i);
             String name = item.curve.spec.displayName();
-            if (name.length() > 13) name = name.substring(0, 12) + "…";
-            textY += dp(18);
+            if (name.length() > 14) name = name.substring(0, 13) + "…";
+            textY += dp(19);
             paint.setColor(item.curve.spec.color);
             paint.setStyle(Paint.Style.FILL);
             canvas.drawCircle(textX + dp(3), textY - dp(4), dp(3), paint);
             textPaint.setColor(Color.rgb(229, 233, 242));
-            canvas.drawText(name + ": " + format(item.y), textX + dp(11), textY, textPaint);
+            canvas.drawText(name + ": y = " + format(item.y), textX + dp(11), textY, textPaint);
         }
 
         if (values.size() > shown) {
-            textY += dp(18);
+            textY += dp(19);
             textPaint.setColor(TEXT);
             canvas.drawText("+ " + (values.size() - shown) + " curva(s)", textX, textY, textPaint);
         }
     }
 
     @Override public boolean onTouchEvent(MotionEvent event) {
+        if (event.getPointerCount() == 1 && getWidth() > 0) {
+            if (event.getActionMasked() == MotionEvent.ACTION_DOWN && inspectorVisible) {
+                float inspectorPx = xToPx(inspectorX, getWidth());
+                if (Math.abs(event.getX() - inspectorPx) <= dp(30)) {
+                    draggingInspector = true;
+                    inspectorX = pxToX(clampFloat(event.getX(), 0, getWidth()), getWidth());
+                    inspectorTouchY = event.getY();
+                    invalidate();
+                    return true;
+                }
+            } else if (event.getActionMasked() == MotionEvent.ACTION_MOVE && draggingInspector) {
+                inspectorX = pxToX(clampFloat(event.getX(), 0, getWidth()), getWidth());
+                inspectorTouchY = event.getY();
+                invalidate();
+                return true;
+            } else if ((event.getActionMasked() == MotionEvent.ACTION_UP || event.getActionMasked() == MotionEvent.ACTION_CANCEL) && draggingInspector) {
+                draggingInspector = false;
+                invalidate();
+                return true;
+            }
+        }
+
         boolean a = scaleDetector.onTouchEvent(event);
         boolean b = gestureDetector.onTouchEvent(event);
         return a || b || super.onTouchEvent(event);
@@ -442,6 +493,10 @@ public final class GraphView extends View {
     }
 
     private double clamp(double value, double min, double max) {
+        return Math.max(min, Math.min(max, value));
+    }
+
+    private float clampFloat(float value, float min, float max) {
         return Math.max(min, Math.min(max, value));
     }
 
