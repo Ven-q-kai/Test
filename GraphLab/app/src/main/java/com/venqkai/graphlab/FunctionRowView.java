@@ -4,7 +4,9 @@ import android.content.Context;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.text.Editable;
 import android.text.InputType;
+import android.text.TextWatcher;
 import android.view.Gravity;
 import android.view.ViewGroup;
 import android.widget.Button;
@@ -16,7 +18,9 @@ public final class FunctionRowView extends LinearLayout {
     public interface Listener {
         void onChanged();
         void onDelete(FunctionRowView row);
+        void onDuplicate(FunctionRowView row);
         void onColorRequested(FunctionRowView row);
+        void onFormulaFocused(FunctionRowView row);
     }
 
     private static final int PANEL = Color.rgb(18, 22, 31);
@@ -39,6 +43,7 @@ public final class FunctionRowView extends LinearLayout {
         super(context);
         this.colorIndex = Math.floorMod(colorIndex, GraphView.paletteSize());
         this.visible = visible;
+
         setOrientation(VERTICAL);
         setPadding(dp(10), dp(9), dp(10), dp(9));
         setBackground(rounded(PANEL, 15, BORDER, 1));
@@ -47,68 +52,179 @@ public final class FunctionRowView extends LinearLayout {
         formulaInput = input(formula, "ex.: x^2 + sin(x)", 16, true);
         colorButton = new Button(context);
         visibilityButton = new Button(context);
+        Button duplicateButton = new Button(context);
         Button deleteButton = new Button(context);
         errorText = new TextView(context);
 
-        colorButton.setMinWidth(0); colorButton.setMinHeight(0); colorButton.setPadding(0,0,0,0);
-        visibilityButton.setAllCaps(false); visibilityButton.setTextSize(11); visibilityButton.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        visibilityButton.setMinWidth(0); visibilityButton.setMinHeight(0); visibilityButton.setPadding(0,0,0,0);
-        deleteButton.setText("×"); deleteButton.setTextColor(MUTED); deleteButton.setTextSize(21); deleteButton.setGravity(Gravity.CENTER);
-        deleteButton.setMinWidth(0); deleteButton.setMinHeight(0); deleteButton.setPadding(0,0,0,dp(2));
+        colorButton.setMinWidth(0);
+        colorButton.setMinHeight(0);
+        colorButton.setPadding(0, 0, 0, 0);
+
+        visibilityButton.setAllCaps(false);
+        visibilityButton.setTextSize(10);
+        visibilityButton.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        visibilityButton.setMinWidth(0);
+        visibilityButton.setMinHeight(0);
+        visibilityButton.setPadding(0, 0, 0, 0);
+
+        duplicateButton.setText("⧉");
+        duplicateButton.setContentDescription("Duplicar função");
+        duplicateButton.setTextColor(TEXT);
+        duplicateButton.setTextSize(18);
+        duplicateButton.setGravity(Gravity.CENTER);
+        duplicateButton.setMinWidth(0);
+        duplicateButton.setMinHeight(0);
+        duplicateButton.setPadding(0, 0, 0, 0);
+        duplicateButton.setBackground(rounded(PANEL_2, 10, BORDER, 1));
+
+        deleteButton.setText("×");
+        deleteButton.setContentDescription("Excluir função");
+        deleteButton.setTextColor(MUTED);
+        deleteButton.setTextSize(21);
+        deleteButton.setGravity(Gravity.CENTER);
+        deleteButton.setMinWidth(0);
+        deleteButton.setMinHeight(0);
+        deleteButton.setPadding(0, 0, 0, dp(2));
         deleteButton.setBackground(rounded(PANEL_2, 10, 0, 0));
 
         LinearLayout top = new LinearLayout(context);
-        top.setOrientation(HORIZONTAL); top.setGravity(Gravity.CENTER_VERTICAL);
-        LayoutParams cp = new LayoutParams(dp(36), dp(36)); cp.rightMargin = dp(8); top.addView(colorButton, cp);
+        top.setOrientation(HORIZONTAL);
+        top.setGravity(Gravity.CENTER_VERTICAL);
+
+        LayoutParams cp = new LayoutParams(dp(34), dp(34));
+        cp.rightMargin = dp(7);
+        top.addView(colorButton, cp);
         top.addView(nameInput, new LayoutParams(0, dp(40), 1f));
-        LayoutParams vp = new LayoutParams(dp(58), dp(36)); vp.leftMargin = dp(6); top.addView(visibilityButton, vp);
-        LayoutParams dp = new LayoutParams(this.dp(38), this.dp(36)); dp.leftMargin = this.dp(6); top.addView(deleteButton, dp);
+
+        LayoutParams vp = new LayoutParams(dp(50), dp(34));
+        vp.leftMargin = dp(5);
+        top.addView(visibilityButton, vp);
+
+        LayoutParams dup = new LayoutParams(dp(36), dp(34));
+        dup.leftMargin = dp(5);
+        top.addView(duplicateButton, dup);
+
+        LayoutParams del = new LayoutParams(dp(36), dp(34));
+        del.leftMargin = dp(5);
+        top.addView(deleteButton, del);
         addView(top);
 
-        LayoutParams fp = new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(46)); fp.topMargin = dp(7);
-        formulaInput.setBackground(rounded(PANEL_2, 11, Color.rgb(38,45,61), 1));
+        LayoutParams fp = new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(46));
+        fp.topMargin = dp(7);
+        formulaInput.setBackground(rounded(PANEL_2, 11, Color.rgb(38, 45, 61), 1));
         addView(formulaInput, fp);
-        errorText.setTextColor(DANGER); errorText.setTextSize(11); errorText.setPadding(dp(4),dp(6),dp(4),0); errorText.setVisibility(GONE);
+
+        errorText.setTextColor(DANGER);
+        errorText.setTextSize(11);
+        errorText.setPadding(dp(4), dp(6), dp(4), 0);
+        errorText.setVisibility(GONE);
         addView(errorText);
 
-        refreshColor(); refreshVisibility();
+        refreshColor();
+        refreshVisibility();
+
         colorButton.setOnClickListener(v -> listener.onColorRequested(this));
-        visibilityButton.setOnClickListener(v -> { this.visible = !this.visible; refreshVisibility(); listener.onChanged(); });
+        visibilityButton.setOnClickListener(v -> {
+            this.visible = !this.visible;
+            refreshVisibility();
+            listener.onChanged();
+        });
+        duplicateButton.setOnClickListener(v -> listener.onDuplicate(this));
         deleteButton.setOnClickListener(v -> listener.onDelete(this));
+        formulaInput.setOnFocusChangeListener((v, hasFocus) -> {
+            if (hasFocus) listener.onFormulaFocused(this);
+        });
+
+        TextWatcher watcher = new TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
+            @Override public void onTextChanged(CharSequence s, int start, int before, int count) {}
+            @Override public void afterTextChanged(Editable s) { listener.onChanged(); }
+        };
+        nameInput.addTextChangedListener(watcher);
+        formulaInput.addTextChangedListener(watcher);
     }
 
     public String getNameValue() { return nameInput.getText().toString().trim(); }
     public String getFormula() { return formulaInput.getText().toString().trim(); }
     public int getColorIndex() { return colorIndex; }
     public boolean isVisibleFunction() { return visible; }
-    public void clearFields() { nameInput.setText(""); formulaInput.setText(""); clearError(); }
-    public void setColorIndex(int index) { colorIndex = Math.floorMod(index, GraphView.paletteSize()); refreshColor(); }
-    public void showError(String message) { errorText.setText(message); errorText.setVisibility(VISIBLE); }
-    public void clearError() { errorText.setText(""); errorText.setVisibility(GONE); }
+
+    public void clearFields() {
+        nameInput.setText("");
+        formulaInput.setText("");
+        clearError();
+    }
+
+    public void setColorIndex(int index) {
+        colorIndex = Math.floorMod(index, GraphView.paletteSize());
+        refreshColor();
+    }
+
+    public void requestFormulaFocus() {
+        formulaInput.requestFocus();
+        formulaInput.setSelection(formulaInput.length());
+    }
+
+    public void insertIntoFormula(String text, int cursorBack) {
+        requestFormulaFocus();
+        int start = Math.max(0, formulaInput.getSelectionStart());
+        int end = Math.max(0, formulaInput.getSelectionEnd());
+        int left = Math.min(start, end);
+        int right = Math.max(start, end);
+        formulaInput.getText().replace(left, right, text);
+        int target = Math.max(0, Math.min(formulaInput.length(), left + text.length() - Math.max(0, cursorBack)));
+        formulaInput.setSelection(target);
+    }
+
+    public void showError(String message) {
+        errorText.setText(message);
+        errorText.setVisibility(VISIBLE);
+    }
+
+    public void clearError() {
+        errorText.setText("");
+        errorText.setVisibility(GONE);
+    }
 
     private EditText input(String value, String hint, int size, boolean boxed) {
         EditText e = new EditText(getContext());
-        e.setSingleLine(true); e.setText(value); e.setHint(hint); e.setTextColor(TEXT); e.setHintTextColor(Color.rgb(99,109,130));
-        e.setTextSize(size); e.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
+        e.setSingleLine(true);
+        e.setText(value);
+        e.setHint(hint);
+        e.setTextColor(TEXT);
+        e.setHintTextColor(Color.rgb(99, 109, 130));
+        e.setTextSize(size);
+        e.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
         e.setPadding(boxed ? dp(12) : dp(8), 0, boxed ? dp(12) : dp(8), 0);
         if (!boxed) e.setBackgroundColor(Color.TRANSPARENT);
         return e;
     }
 
-    private void refreshColor() { colorButton.setBackground(rounded(GraphView.colorFor(colorIndex), 100, Color.argb(80,255,255,255), 1)); }
+    private void refreshColor() {
+        colorButton.setBackground(rounded(GraphView.colorFor(colorIndex), 100, Color.argb(80, 255, 255, 255), 1));
+    }
+
     private void refreshVisibility() {
         if (visible) {
-            visibilityButton.setText("ON"); visibilityButton.setTextColor(SUCCESS);
-            visibilityButton.setBackground(rounded(Color.rgb(22,43,38), 10, Color.rgb(50,88,72), 1));
+            visibilityButton.setText("ON");
+            visibilityButton.setTextColor(SUCCESS);
+            visibilityButton.setBackground(rounded(Color.rgb(22, 43, 38), 10, Color.rgb(50, 88, 72), 1));
         } else {
-            visibilityButton.setText("OFF"); visibilityButton.setTextColor(MUTED);
+            visibilityButton.setText("OFF");
+            visibilityButton.setTextColor(MUTED);
             visibilityButton.setBackground(rounded(PANEL_2, 10, BORDER, 1));
         }
     }
 
     private GradientDrawable rounded(int fill, int radius, int stroke, int width) {
-        GradientDrawable d = new GradientDrawable(); d.setColor(fill); d.setCornerRadius(dp(radius));
-        if (width > 0) d.setStroke(dp(width), stroke); return d;
+        GradientDrawable d = new GradientDrawable();
+        d.setColor(fill);
+        d.setCornerRadius(dp(radius));
+        if (width > 0) d.setStroke(dp(width), stroke);
+        return d;
     }
-    private int dp(float v) { return Math.round(v * getResources().getDisplayMetrics().density); }
+
+    private int dp(float v) {
+        return Math.round(v * getResources().getDisplayMetrics().density);
+    }
 }
