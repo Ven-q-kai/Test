@@ -2,7 +2,7 @@ name: Build GraphLab APK
 
 on:
   push:
-    branches: [chatgpt-graph-apk]
+    branches: [chatgpt-graph-apk-v1.0.1]
     paths:
       - 'GraphLab/**'
       - '.github/workflows/build-graphlab-apk.yml'
@@ -39,11 +39,11 @@ jobs:
         run: gradle :app:assembleDebug --stacktrace
 
       - name: Rename APK
-        run: cp app/build/outputs/apk/debug/app-debug.apk GraphLab.apk
+        run: cp app/build/outputs/apk/debug/app-debug.apk GraphLab-1.0.1.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: GraphLab-APK
-          path: GraphLab/GraphLab.apk
+          name: GraphLab-1.0.1-APK
+          path: GraphLab/GraphLab-1.0.1.apk
           if-no-files-found: error
